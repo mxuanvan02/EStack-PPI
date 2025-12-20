@@ -8,9 +8,10 @@
 
 **E-StackPPI** là một phương pháp dự đoán tương tác protein-protein (Protein-Protein Interaction - PPI) hiệu quả, kết hợp:
 
-1. **ESM-2 (Evolutionary Scale Modeling)**: Mô hình ngôn ngữ protein tiên tiến để trích xuất biểu diễn ngữ nghĩa từ chuỗi amino acid
+1. **ESM-2 (Evolutionary Scale Modeling)**: Mô hình ngôn ngữ protein tiên tiến (650M parameters) để trích xuất biểu diễn ngữ nghĩa từ chuỗi amino acid
 2. **Chọn lọc đặc trưng 3 giai đoạn**: Variance Filter → LGBM Importance → Correlation Filter
 3. **Kiến trúc xếp tầng (Stacking)**: 2× LightGBM base learners + Logistic Regression meta-learner
+4. **Protein-level Cross-Validation**: Tránh data leakage, đảm bảo đánh giá công bằng
 
 ## 🏗️ Kiến trúc hệ thống
 
@@ -58,6 +59,15 @@
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
+## ⚠️ Đánh giá công bằng: Protein-Level Cross-Validation
+
+**Quan trọng:** E-StackPPI sử dụng **Protein-Level CV** thay vì Pair-Level CV thông thường để tránh data leakage.
+
+| Phương pháp | Mô tả | Vấn đề |
+|-------------|-------|--------|
+| Pair-Level CV | Chia ngẫu nhiên theo cặp | Protein có thể xuất hiện cả train và test → **Kết quả bị thổi phồng** |
+| **Protein-Level CV** | Chia theo protein | Mỗi protein chỉ xuất hiện trong một fold → **Đánh giá công bằng** |
+
 ## 📊 Datasets
 
 Dự án sử dụng hai bộ dữ liệu benchmark từ Database of Interacting Proteins (DIP):
@@ -65,7 +75,7 @@ Dự án sử dụng hai bộ dữ liệu benchmark từ Database of Interacting
 | Dataset | Số cặp PPI | Số protein | Thư mục |
 |---------|-----------|------------|---------|
 | **Yeast-DIP** | 11,190 | 2,530 | `data/yeast/` |
-| **Human-DIP** | 73,076 | 10,339 | `data/human/` |
+| **Human-DIP** | 73,076 | 10,340 | `data/human/` |
 
 ### Cấu trúc dữ liệu
 
@@ -73,11 +83,15 @@ Dự án sử dụng hai bộ dữ liệu benchmark từ Database of Interacting
 data/
 ├── yeast/                    # Yeast-DIP Dataset
 │   ├── sequences.fasta       # Chuỗi protein định dạng FASTA
-│   └── pairs.tsv             # Cặp tương tác (protein_1, protein_2, label)
+│   ├── pairs.tsv             # Cặp tương tác (protein_1, protein_2, label)
+│   ├── X_esm2.npy            # ESM-2 embeddings (pre-computed)
+│   └── y.npy                 # Labels
 │
 └── human/                    # Human-DIP Dataset
     ├── sequences.fasta       # Chuỗi protein định dạng FASTA
-    └── pairs.tsv             # Cặp tương tác (protein_1, protein_2, label)
+    ├── pairs.tsv             # Cặp tương tác
+    ├── X_esm2.npy            # ESM-2 embeddings (pre-computed)
+    └── y.npy                 # Labels
 ```
 
 **Định dạng file:**
@@ -100,14 +114,14 @@ data/
 ### Yêu cầu hệ thống
 
 - Python 3.8+
-- CUDA-capable GPU (khuyến nghị, không bắt buộc)
+- CUDA-capable GPU (khuyến nghị cho ESM-2 extraction)
 - RAM ≥ 16GB
 
 ### Cài đặt dependencies
 
 ```bash
 # Clone repository
-git clone git@github.com:mxuanvan02/EStack-PPI.git
+git clone https://github.com/mxuanvan02/EStack-PPI.git
 cd EStack-PPI
 
 # Tạo virtual environment (khuyến nghị)
@@ -121,17 +135,40 @@ pip install -r requirements.txt
 
 ## 💻 Sử dụng
 
-### Chạy thí nghiệm
+### Bước 1: Trích xuất ESM-2 Embeddings (nếu chưa có)
 
 ```bash
-# Chạy trên Yeast-DIP dataset (~5 phút)
+# Trích xuất embeddings cho Yeast-DIP
+python EStack_PPI/extract_esm2.py --dataset yeast
+
+# Trích xuất embeddings cho Human-DIP
+python EStack_PPI/extract_esm2.py --dataset human
+
+# Hoặc cả hai
+python EStack_PPI/extract_esm2.py --dataset all
+```
+
+### Bước 2: Chạy thí nghiệm chính
+
+```bash
+# Chạy trên Yeast-DIP dataset
 python EStack_PPI/run_estackppi.py --dataset yeast
 
-# Chạy trên Human-DIP dataset (~30 phút)
+# Chạy trên Human-DIP dataset
 python EStack_PPI/run_estackppi.py --dataset human
 
 # Chạy trên cả hai datasets
 python EStack_PPI/run_estackppi.py --dataset all
+```
+
+### Bước 3: Chạy Ablation Study (tùy chọn)
+
+```bash
+# Ablation study trên Yeast
+python EStack_PPI/run_ablation.py --dataset yeast
+
+# Ablation study trên Human
+python EStack_PPI/run_ablation.py --dataset human
 ```
 
 ### Tùy chọn
@@ -140,34 +177,20 @@ python EStack_PPI/run_estackppi.py --dataset all
 |----------|----------|-------|
 | `--dataset` | `all` | Dataset: `yeast`, `human`, hoặc `all` |
 | `--n_jobs` | `-1` | Số CPU cores (-1 = tất cả) |
+| `--batch_size` | `8` | Batch size cho ESM-2 extraction |
 
 ## 📈 Kết quả
 
-### Hiệu suất trên Yeast-DIP (5-fold CV)
+### Ablation Study
 
-| Metric | Mean ± Std |
-|--------|------------|
-| Accuracy | 95.23% ± 0.45% |
-| Precision | 94.87% ± 0.52% |
-| Recall | 95.61% ± 0.68% |
-| F1-Score | 95.24% ± 0.44% |
-| Specificity | 94.85% ± 0.71% |
-| MCC | 90.47% ± 0.89% |
-| ROC-AUC | 98.72% ± 0.18% |
-| PR-AUC | 98.65% ± 0.21% |
+| Model | Accuracy | ROC-AUC | PR-AUC | MCC |
+|-------|----------|---------|--------|-----|
+| 1. LR (baseline) | 85.2% | 92.1% | 91.8% | 70.4% |
+| 2. LGBM | 89.5% | 95.8% | 95.4% | 79.1% |
+| 3. LGBM + Selector | 90.2% | 96.3% | 96.0% | 80.5% |
+| **4. E-StackPPI (full)** | **91.8%** | **97.2%** | **96.9%** | **83.7%** |
 
-### Hiệu suất trên Human-DIP (5-fold CV)
-
-| Metric | Mean ± Std |
-|--------|------------|
-| Accuracy | 93.45% ± 0.32% |
-| Precision | 92.78% ± 0.41% |
-| Recall | 94.15% ± 0.55% |
-| F1-Score | 93.46% ± 0.31% |
-| Specificity | 92.74% ± 0.48% |
-| MCC | 86.91% ± 0.64% |
-| ROC-AUC | 97.89% ± 0.15% |
-| PR-AUC | 97.76% ± 0.19% |
+*Kết quả trên Yeast-DIP với 5-fold Protein-Level CV*
 
 ### Outputs
 
@@ -178,12 +201,14 @@ results/
 ├── yeast/
 │   ├── roc_all_folds.png      # ROC curves cho 5 folds
 │   ├── pr_all_folds.png       # Precision-Recall curves
-│   └── cv_metrics.csv         # Metrics chi tiết
+│   ├── cv_metrics.csv         # Metrics chi tiết
+│   └── ablation/              # Ablation study results
+│       ├── ablation_results.csv
+│       ├── ablation_results.tex
+│       └── ablation_comparison.png
 │
 └── human/
-    ├── roc_all_folds.png
-    ├── pr_all_folds.png
-    └── cv_metrics.csv
+    └── ...
 ```
 
 ## 📁 Cấu trúc dự án
@@ -192,23 +217,26 @@ results/
 EStack-PPI/
 ├── README.md                    # Tài liệu dự án
 ├── requirements.txt             # Dependencies
+├── LICENSE                      # MIT License
 │
 ├── data/                        # Datasets
 │   ├── yeast/                   # Yeast-DIP dataset
 │   │   ├── sequences.fasta
-│   │   └── pairs.tsv
+│   │   ├── pairs.tsv
+│   │   ├── X_esm2.npy           # Pre-computed (or generate with extract_esm2.py)
+│   │   └── y.npy
 │   └── human/                   # Human-DIP dataset
-│       ├── sequences.fasta
-│       └── pairs.tsv
+│       └── ...
 │
 ├── EStack_PPI/                  # Main module
-│   ├── run_estackppi.py         # Entry point
+│   ├── run_estackppi.py         # Entry point - main experiment
+│   ├── extract_esm2.py          # ESM-2 embedding extraction
+│   ├── run_ablation.py          # Ablation study
 │   └── results/                 # Output directory
 │
 ├── pipelines/                   # Core pipeline modules
 │   ├── builders.py              # Model builders
-│   ├── selectors.py             # Feature selectors
-│   ├── feature_engine.py        # Feature extraction
+│   ├── selectors.py             # 3-stage feature selector
 │   ├── data_utils.py            # Data utilities
 │   └── metrics.py               # Evaluation metrics
 │
@@ -221,20 +249,30 @@ EStack-PPI/
 ### ESM-2 Embedding
 
 - **Model**: `facebook/esm2_t33_650M_UR50D` (650M parameters)
-- **Output**: 640-dimensional embedding per protein
+- **Output**: 640-dimensional embedding per protein (mean-pooled)
 - **Pairing**: Concatenation → 1280-dim feature vector per pair
 
 ### 3-Stage Feature Selection
 
-1. **Variance Filter**: Loại bỏ features có variance thấp (threshold=0.0)
-2. **LGBM Importance**: Giữ lại top 90% features theo importance score
+1. **Variance Filter**: Loại bỏ features có variance = 0
+2. **LGBM Importance**: Giữ lại top 90% features theo cumulative importance
 3. **Correlation Filter**: Loại bỏ features có correlation > 0.98
 
 ### Stacking Architecture
 
-- **Base Learners**: 2× LightGBM với `colsample_bytree` khác nhau (0.8, 0.7) để tạo diversity
+- **Base Learners**: 2× LightGBM với `colsample_bytree` khác nhau (0.8 và 0.7) để tạo diversity
 - **Meta-Learner**: Logistic Regression với class balancing
-- **Cross-validation**: 3-fold internal CV cho stacking
+- **Internal CV**: 3-fold CV để tránh overfitting trong stacking
+
+### Protein-Level Cross-Validation
+
+```python
+# Mỗi protein chỉ xuất hiện trong một fold
+train_mask = pairs_df.apply(
+    lambda x: (x["protein1"] in train_prots) and (x["protein2"] in train_prots), 
+    axis=1
+)
+```
 
 ## 📖 Trích dẫn
 

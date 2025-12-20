@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-EStack-PPI: ESM2-based Protein-Protein Interaction Prediction
+E-StackPPI: ESM2-based Protein-Protein Interaction Prediction
 
-A simplified version of HybridStack-PPI using only ESM2 embeddings.
-This implementation INHERITS from HybridStackPPI modules.
+Khung dự đoán tương tác Protein-Protein dựa trên mô hình ngôn ngữ protein 
+và kiến trúc học máy xếp tầng tích hợp chọn lọc đặc trưng.
 
 Usage:
     python run_estackppi.py --dataset yeast   # Run on DIP-Yeast
@@ -16,11 +16,16 @@ import sys
 import argparse
 import warnings
 from pathlib import Path
+from typing import Dict, List, Tuple
 
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from sklearn.model_selection import StratifiedKFold
+from sklearn.model_selection import KFold
+from sklearn.preprocessing import StandardScaler
+from sklearn.pipeline import Pipeline
+from sklearn.ensemble import StackingClassifier
+from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import (
     accuracy_score,
     precision_score,
@@ -34,18 +39,181 @@ from sklearn.metrics import (
     auc,
     confusion_matrix,
 )
+from lightgbm import LGBMClassifier
 
 warnings.filterwarnings("ignore", category=UserWarning)
 
-# Add parent directory to path for imports from HybridStackPPI
+# Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-# ============================================================================
-# INHERIT FROM HYBRIDSTACKPPI MODULES
-# ============================================================================
-from pipelines.builders import create_esm_stacking_pipeline
-from pipelines.metrics import display_full_metrics, print_paper_style_results
+from pipelines.selectors import CumulativeFeatureSelector
 
+
+# ============================================================================
+# DATA UTILITIES
+# ============================================================================
+
+def load_fasta(fasta_path: str) -> Dict[str, str]:
+    """Load protein sequences from FASTA file."""
+    sequences = {}
+    with open(fasta_path, "r") as f:
+        header = None
+        for line in f:
+            line = line.strip()
+            if line.startswith(">"):
+                header = line.split()[0][1:]
+                sequences[header] = ""
+            elif header:
+                sequences[header] += line
+    return sequences
+
+
+def load_pairs(pairs_path: str) -> pd.DataFrame:
+    """Load interaction pairs from TSV file."""
+    pairs_df = pd.read_csv(
+        pairs_path, sep="\t", header=None, 
+        names=["protein1", "protein2", "label"]
+    )
+    return pairs_df
+
+
+def canonicalize_pairs(pairs_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Sort protein IDs within each pair and drop duplicates to prevent inflated metrics.
+    """
+    if pairs_df.empty:
+        return pairs_df
+    
+    df = pairs_df.copy()
+    sorted_pairs = df[["protein1", "protein2"]].apply(
+        lambda r: tuple(sorted([r["protein1"], r["protein2"]])), axis=1
+    )
+    df["protein1"], df["protein2"] = zip(*sorted_pairs)
+    df["pair_key"] = df["protein1"] + "||" + df["protein2"]
+    
+    dup_count = df.duplicated("pair_key").sum()
+    if dup_count > 0:
+        print(f"  ⚠️ Removed {dup_count} duplicate pair rows (unordered).")
+    
+    df = df.drop_duplicates(subset="pair_key", keep="first")
+    df = df.drop(columns=["pair_key"]).reset_index(drop=True)
+    return df
+
+
+def get_protein_based_splits(
+    pairs_df: pd.DataFrame, n_splits: int = 5, random_state: int = 42
+) -> List[Tuple[np.ndarray, np.ndarray]]:
+    """
+    Protein-level splits to avoid data leakage.
+    A protein appears in only one fold's validation set.
+    
+    This is CRITICAL for fair evaluation in PPI prediction.
+    """
+    unique_proteins = list(set(pairs_df["protein1"]) | set(pairs_df["protein2"]))
+    unique_proteins.sort()
+    
+    kf = KFold(n_splits=n_splits, shuffle=True, random_state=random_state)
+    splits = []
+    
+    print(f"  📊 Generating {n_splits}-fold PROTEIN-LEVEL splits ({len(unique_proteins)} unique proteins)")
+    
+    for fold_idx, (train_prot_idx, val_prot_idx) in enumerate(kf.split(unique_proteins)):
+        train_prots = set(unique_proteins[i] for i in train_prot_idx)
+        val_prots = set(unique_proteins[i] for i in val_prot_idx)
+        
+        # Pairs where BOTH proteins are in train set
+        train_mask = pairs_df.apply(
+            lambda x: (x["protein1"] in train_prots) and (x["protein2"] in train_prots), axis=1
+        )
+        # Pairs where BOTH proteins are in validation set
+        val_mask = pairs_df.apply(
+            lambda x: (x["protein1"] in val_prots) and (x["protein2"] in val_prots), axis=1
+        )
+        
+        train_indices = pairs_df[train_mask].index.to_numpy()
+        val_indices = pairs_df[val_mask].index.to_numpy()
+        splits.append((train_indices, val_indices))
+        
+        print(
+            f"    Fold {fold_idx+1}: Train={len(train_indices):,}, Val={len(val_indices):,} pairs"
+        )
+    
+    return splits
+
+
+# ============================================================================
+# MODEL BUILDING
+# ============================================================================
+
+def create_estackppi_pipeline(n_jobs: int = -1) -> Pipeline:
+    """
+    E-StackPPI Pipeline: ESM2-only with 3-Stage Feature Selection + 2x LGBM Stacking.
+    
+    Architecture:
+    1. StandardScaler
+    2. 3-Stage Feature Selector (Variance → LGBM Importance → Correlation)
+    3. 2x LGBM Base Estimators (Stacking)
+    4. Logistic Regression Meta-Learner
+    """
+    # 3-stage feature selector
+    selector = CumulativeFeatureSelector(
+        variance_threshold=0.0,
+        importance_quantile=0.90,
+        corr_threshold=0.98,
+        verbose=True
+    )
+    
+    # LGBM parameters
+    lgbm_params = {
+        "n_estimators": 500,
+        "learning_rate": 0.05,
+        "num_leaves": 20,
+        "max_depth": 10,
+        "reg_alpha": 0.1,
+        "reg_lambda": 0.1,
+        "random_state": 42,
+        "n_jobs": n_jobs,
+        "verbose": -1,
+        "class_weight": "balanced",
+    }
+    
+    # Create stacking classifier with 2x LGBM (different colsample_bytree for diversity)
+    base_estimator_1 = LGBMClassifier(**lgbm_params, colsample_bytree=0.8)
+    base_estimator_2 = LGBMClassifier(**lgbm_params, colsample_bytree=0.7)
+    
+    stacking = StackingClassifier(
+        estimators=[
+            ("lgbm_1", base_estimator_1),
+            ("lgbm_2", base_estimator_2),
+        ],
+        final_estimator=LogisticRegression(
+            random_state=42,
+            class_weight="balanced",
+            max_iter=2000
+        ),
+        cv=3,
+        n_jobs=n_jobs,
+        verbose=0,
+    )
+    
+    pipeline = Pipeline([
+        ("scaler", StandardScaler()),
+        ("selector", selector),
+        ("stacking", stacking),
+    ])
+    
+    try:
+        pipeline.set_output(transform="pandas")
+    except Exception:
+        pass
+    
+    print("  ✅ E-StackPPI Pipeline created: Scaler → Selector → 2xLGBM Stacking → LR")
+    return pipeline
+
+
+# ============================================================================
+# METRICS & VISUALIZATION
+# ============================================================================
 
 def compute_metrics(y_true, y_pred, y_proba) -> dict:
     """Compute all classification metrics."""
@@ -96,7 +264,7 @@ def save_combined_roc(all_fold_data: list, save_path: str, dataset_name: str):
     
     plt.xlabel("False Positive Rate", fontsize=12)
     plt.ylabel("True Positive Rate", fontsize=12)
-    plt.title(f"ROC Curves (All Folds) - {dataset_name}", fontsize=14, fontweight="bold")
+    plt.title(f"ROC Curves - {dataset_name} (Protein-Level CV)", fontsize=14, fontweight="bold")
     plt.legend(loc="lower right", fontsize=10)
     plt.grid(alpha=0.3)
     plt.tight_layout()
@@ -122,7 +290,7 @@ def save_combined_pr(all_fold_data: list, save_path: str, dataset_name: str):
     
     plt.xlabel("Recall", fontsize=12)
     plt.ylabel("Precision", fontsize=12)
-    plt.title(f"Precision-Recall Curves (All Folds) - {dataset_name}", fontsize=14, fontweight="bold")
+    plt.title(f"Precision-Recall Curves - {dataset_name} (Protein-Level CV)", fontsize=14, fontweight="bold")
     plt.legend(loc="lower left", fontsize=10)
     plt.grid(alpha=0.3)
     
@@ -135,32 +303,47 @@ def save_combined_pr(all_fold_data: list, save_path: str, dataset_name: str):
     plt.close()
 
 
-def run_cross_validation(X: np.ndarray, y: np.ndarray, dataset_name: str, 
-                         results_dir: str, n_splits: int = 5, n_jobs: int = -1):
-    """Run 5-fold cross-validation using INHERITED HybridStackPPI pipeline."""
+# ============================================================================
+# MAIN EXPERIMENT
+# ============================================================================
+
+def run_cross_validation(
+    X: np.ndarray, 
+    y: np.ndarray, 
+    pairs_df: pd.DataFrame,
+    dataset_name: str, 
+    results_dir: str, 
+    n_splits: int = 5, 
+    n_jobs: int = -1
+) -> pd.DataFrame:
+    """
+    Run 5-fold PROTEIN-LEVEL cross-validation (NO DATA LEAKAGE).
+    """
     print(f"\n{'='*70}")
-    print(f"🚀 EStack-PPI: {dataset_name} Dataset")
+    print(f"🚀 E-StackPPI: {dataset_name} Dataset")
     print(f"{'='*70}")
     print(f"📊 Data shape: X={X.shape}, y={y.shape}")
+    print(f"📊 Positive: {int(y.sum()):,}, Negative: {len(y) - int(y.sum()):,}")
     
     X_df = pd.DataFrame(X, columns=[f"esm_{i}" for i in range(X.shape[1])])
     y_series = pd.Series(y, name="label")
     
-    skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=42)
+    # ================================================
+    # PROTEIN-LEVEL CV (NO DATA LEAKAGE)
+    # ================================================
+    splits = get_protein_based_splits(pairs_df, n_splits=n_splits, random_state=42)
     
     all_metrics = []
     all_fold_data = []
     
-    for fold_idx, (train_idx, val_idx) in enumerate(skf.split(X_df, y_series), start=1):
+    for fold_idx, (train_idx, val_idx) in enumerate(splits, start=1):
         print(f"\n--- Fold {fold_idx}/{n_splits} ---")
         
         X_train, X_val = X_df.iloc[train_idx], X_df.iloc[val_idx]
         y_train, y_val = y_series.iloc[train_idx], y_series.iloc[val_idx]
         
-        # ================================================
-        # USE PIPELINE FROM HybridStackPPI (pipelines.builders)
-        # ================================================
-        model = create_esm_stacking_pipeline(n_jobs=n_jobs)
+        # Create and train pipeline
+        model = create_estackppi_pipeline(n_jobs=n_jobs)
         model.fit(X_train, y_train)
         
         # Predict
@@ -172,11 +355,11 @@ def run_cross_validation(X: np.ndarray, y: np.ndarray, dataset_name: str,
         metrics["Fold"] = fold_idx
         all_metrics.append(metrics)
         
-        # Print ALL metrics for this fold
-        print(f"  ✅ Fold {fold_idx} Metrics:")
+        # Print metrics
+        print(f"  ✅ Fold {fold_idx} Results:")
         for k, v in metrics.items():
             if k != "Fold":
-                print(f"    - {k:20s}: {v*100:.2f}%" if v <= 1 else f"    - {k:20s}: {v}")
+                print(f"    - {k:15s}: {v*100:.2f}%")
         
         # Save fold data for combined plot
         all_fold_data.append({
@@ -200,9 +383,9 @@ def run_cross_validation(X: np.ndarray, y: np.ndarray, dataset_name: str,
     metrics_df.to_csv(metrics_path, index=False)
     print(f"💾 Saved full metric table: {metrics_path}")
     
-    # Print summary using HybridStackPPI's print_paper_style_results
+    # Print summary
     print(f"\n{'='*70}")
-    print(f"📊 MEAN PERFORMANCE SUMMARY: {dataset_name}")
+    print(f"📊 MEAN PERFORMANCE SUMMARY: {dataset_name} (Protein-Level CV)")
     print(f"{'='*70}")
     
     mean_metrics = metrics_df.drop(columns=["Fold"]).mean()
@@ -215,30 +398,40 @@ def run_cross_validation(X: np.ndarray, y: np.ndarray, dataset_name: str,
 
 
 def main():
-    parser = argparse.ArgumentParser(description="EStack-PPI: ESM2-based PPI Prediction (Inherits from HybridStackPPI)")
-    parser.add_argument("--dataset", type=str, default="all", 
-                       choices=["yeast", "human", "all"],
-                       help="Dataset to run: yeast, human, or all")
-    parser.add_argument("--n_jobs", type=int, default=-1,
-                       help="Number of parallel jobs (-1 for all cores)")
+    parser = argparse.ArgumentParser(
+        description="E-StackPPI: ESM2-based PPI Prediction with Protein-Level CV"
+    )
+    parser.add_argument(
+        "--dataset", type=str, default="all", 
+        choices=["yeast", "human", "all"],
+        help="Dataset to run: yeast, human, or all"
+    )
+    parser.add_argument(
+        "--n_jobs", type=int, default=-1,
+        help="Number of parallel jobs (-1 for all cores)"
+    )
     args = parser.parse_args()
     
-    # Paths
+    # Paths - corrected to match repository structure
     script_dir = Path(__file__).parent
     data_dir = script_dir.parent / "data"
     results_base = script_dir / "results"
     
-    # Dataset configurations
+    # Dataset configurations - using CORRECT paths
     datasets = {
         "yeast": {
-            "X_path": data_dir / "ppis" / "X_esm2.npy",
-            "y_path": data_dir / "ppis" / "y.npy",
+            "fasta_path": data_dir / "yeast" / "sequences.fasta",
+            "pairs_path": data_dir / "yeast" / "pairs.tsv",
+            "X_path": data_dir / "yeast" / "X_esm2.npy",
+            "y_path": data_dir / "yeast" / "y.npy",
             "results_dir": results_base / "yeast",
             "name": "DIP-Yeast",
         },
         "human": {
-            "X_path": data_dir / "feats" / "X_esm2.npy",
-            "y_path": data_dir / "feats" / "y_esm2.npy",
+            "fasta_path": data_dir / "human" / "sequences.fasta",
+            "pairs_path": data_dir / "human" / "pairs.tsv",
+            "X_path": data_dir / "human" / "X_esm2.npy",
+            "y_path": data_dir / "human" / "y.npy",
             "results_dir": results_base / "human",
             "name": "DIP-Human",
         },
@@ -258,14 +451,25 @@ def main():
         # Ensure results directory exists
         config["results_dir"].mkdir(parents=True, exist_ok=True)
         
+        # Check if pre-computed features exist
+        if not config["X_path"].exists():
+            print(f"\n❌ Pre-computed features not found: {config['X_path']}")
+            print(f"   Please run: python extract_esm2.py --dataset {dataset_key}")
+            continue
+        
         # Load data
         print(f"\n📂 Loading {config['name']} data...")
         X = np.load(config["X_path"])
         y = np.load(config["y_path"])
         
+        # Load pairs for protein-level split
+        pairs_df = load_pairs(config["pairs_path"])
+        pairs_df = canonicalize_pairs(pairs_df)
+        
         # Run cross-validation
         metrics_df = run_cross_validation(
             X=X, y=y,
+            pairs_df=pairs_df,
             dataset_name=config["name"],
             results_dir=str(config["results_dir"]),
             n_splits=5,
@@ -274,7 +478,7 @@ def main():
         all_results[dataset_key] = metrics_df
     
     print(f"\n{'='*70}")
-    print("🎉 EStack-PPI EXPERIMENT COMPLETED!")
+    print("🎉 E-StackPPI EXPERIMENT COMPLETED!")
     print(f"{'='*70}")
     
     return all_results

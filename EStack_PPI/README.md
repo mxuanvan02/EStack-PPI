@@ -1,6 +1,6 @@
-# EStack-PPI: ESM2-based Protein-Protein Interaction Prediction
+# E-StackPPI: ESM2-based Protein-Protein Interaction Prediction
 
-A simplified version of HybridStack-PPI using **only ESM2 embeddings** as features.
+Khung dự đoán tương tác Protein-Protein dựa trên mô hình ngôn ngữ protein và kiến trúc học máy xếp tầng.
 
 ## Architecture
 
@@ -14,28 +14,43 @@ Protein B ──┘                                         │                 
                                                       └── Correlation Filter
 ```
 
+## Scripts
+
+| Script | Description |
+|--------|-------------|
+| `extract_esm2.py` | Extract ESM-2 embeddings from FASTA sequences |
+| `run_estackppi.py` | Main experiment with Protein-Level CV |
+| `run_ablation.py` | Ablation study (4 model configurations) |
+
 ## Usage
 
 ```bash
-# Run on DIP-Yeast dataset (11K pairs, ~5 minutes)
+# Step 1: Extract ESM-2 embeddings (if not available)
+python extract_esm2.py --dataset yeast
+
+# Step 2: Run main experiment
 python run_estackppi.py --dataset yeast
 
-# Run on DIP-Human dataset (73K pairs, ~30 minutes)
-python run_estackppi.py --dataset human
-
-# Run on both datasets
-python run_estackppi.py --dataset all
+# Step 3: Run ablation study (optional)
+python run_ablation.py --dataset yeast
 ```
+
+## Key Features
+
+- **Protein-Level CV**: Avoids data leakage by ensuring no protein appears in both train and test
+- **3-Stage Feature Selection**: Variance → LGBM Importance → Correlation
+- **Stacking Ensemble**: 2× LightGBM + Logistic Regression meta-learner
 
 ## Outputs
 
 Results are saved in `results/[dataset]/`:
-- `fold{1-5}_roc.png` - ROC curve for each fold
-- `fold{1-5}_pr.png` - Precision-Recall curve for each fold  
-- `combined_curves.png` - All folds overlaid with mean curve
-- `cv_metrics.csv` - Metrics for all folds
+- `roc_all_folds.png` - ROC curves for 5 folds
+- `pr_all_folds.png` - Precision-Recall curves  
+- `cv_metrics.csv` - Detailed metrics for all folds
+- `ablation/` - Ablation study results
 
 ## Requirements
 
 - Python 3.8+
 - numpy, pandas, scikit-learn, lightgbm, matplotlib
+- torch, transformers (for ESM-2 extraction)

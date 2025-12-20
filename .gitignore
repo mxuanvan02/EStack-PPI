@@ -19,6 +19,8 @@
 !EStack_PPI/
 !EStack_PPI/README.md
 !EStack_PPI/run_estackppi.py
+!EStack_PPI/extract_esm2.py
+!EStack_PPI/run_ablation.py
 !EStack_PPI/results/
 !EStack_PPI/results/.gitkeep
 
@@ -80,7 +82,7 @@ __pycache__/
 .jupyter_ystore.db
 .virtual_documents/
 
-# Large files
+# Large files (pre-computed features - users should regenerate)
 *.npy
 *.npz
 *.h5
@@ -112,7 +114,7 @@ catboost_info/
 *.tex
 !data/**/*.tsv
 
-# External projects
+# External projects (not part of E-StackPPI)
 AE-LGBM*/
 ComFeatPPI*/
 XCapT5/
@@ -124,3 +126,9 @@ mnt/
 !requirements.txt
 test/
 tmp_*.py
+
+# Old data directories (deprecated)
+data/ppis/
+data/feats/
+data/Yeasts/
+data_clean/
