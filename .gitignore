@@ -1,0 +1,126 @@
+# ============================================================================
+# E-StackPPI Git Ignore Configuration
+# ============================================================================
+
+# Ignore everything by default
+*
+
+# ============================================================================
+# ALLOWED FILES (Core Repository)
+# ============================================================================
+
+# Root files
+!README.md
+!requirements.txt
+!.gitignore
+!LICENSE
+
+# EStack_PPI module
+!EStack_PPI/
+!EStack_PPI/README.md
+!EStack_PPI/run_estackppi.py
+!EStack_PPI/results/
+!EStack_PPI/results/.gitkeep
+
+# Pipelines module
+!pipelines/
+!pipelines/__init__.py
+!pipelines/builders.py
+!pipelines/selectors.py
+!pipelines/feature_engine.py
+!pipelines/data_utils.py
+!pipelines/metrics.py
+!pipelines/logger.py
+
+# Experiments module
+!experiments/
+!experiments/__init__.py
+!experiments/run.py
+!experiments/data_utils.py
+!experiments/metrics.py
+!experiments/logger.py
+!experiments/generate_importance.py
+
+# Feature selectors
+!feature_selectors/
+!feature_selectors/*.py
+
+# Utils
+!utils/
+!utils/__init__.py
+!utils/*.py
+
+# Data - ONLY fasta and pairs files
+!data/
+!data/yeast/
+!data/yeast/sequences.fasta
+!data/yeast/pairs.tsv
+!data/human/
+!data/human/sequences.fasta
+!data/human/pairs.tsv
+
+# ============================================================================
+# EXPLICITLY IGNORED
+# ============================================================================
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.eggs/
+*.egg
+.pytest_cache/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+.jupyter_ystore.db
+.virtual_documents/
+
+# Large files
+*.npy
+*.npz
+*.h5
+*.hdf5
+*.pkl
+*.pickle
+*.zip
+*.tar.gz
+*.mat
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Cache
+cache/
+catboost_info/
+*.log
+
+# Results (generated)
+*.png
+*.csv
+*.tex
+!data/**/*.tsv
+
+# External projects
+AE-LGBM*/
+ComFeatPPI*/
+XCapT5/
+XCapT5.zip
+mnt/
+
+# Misc
+*.txt
+!requirements.txt
+test/
+tmp_*.py
