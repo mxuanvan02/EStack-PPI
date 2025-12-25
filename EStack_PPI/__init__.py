@@ -8,13 +8,13 @@ A high-performance PPI prediction pipeline using:
 
 Usage
 -----
->>> from EStackPPI import create_estack_pipeline
+>>> from EStack_PPI import create_estack_pipeline
 >>> pipeline = create_estack_pipeline(use_gpu=True)
 >>> pipeline.fit(X_train, y_train)
 >>> y_pred = pipeline.predict(X_test)
 
 For ablation study:
->>> from EStackPPI import run_ablation_study
+>>> from EStack_PPI import run_ablation_study
 >>> results = run_ablation_study(X, y, n_splits=5)
 
 Author: EStack-PPI Team
