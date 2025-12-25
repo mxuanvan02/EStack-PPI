@@ -1,11 +1,11 @@
-# E-StackPPI: Dự đoán tương tác Protein-Protein với ESM-2 và Stacking Classifier
+# Tối ưu hóa dự đoán tương tác protein-protein từ biểu diễn ngôn ngữ thông qua cơ chế chọn lọc đặc trưng đa giai đoạn và học máy xếp chồng (EStack-PPI)
 
 [![Python 3.8+](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 ## 📋 Tổng quan
 
-**E-StackPPI** là phương pháp dự đoán tương tác protein-protein (PPI) dựa trên:
+**EStack-PPI** là phương pháp dự đoán tương tác protein-protein (PPI) dựa trên:
 
 - **ESM-2** (650M parameters): Mô hình ngôn ngữ protein để trích xuất embeddings
 - **Chọn lọc đặc trưng 3 giai đoạn**: Variance → Importance → Correlation
@@ -94,9 +94,9 @@ All variants use **Logistic Regression** as meta-learner.
 | Variant | Description |
 |---------|-------------|
 | Baseline (LR) | ESM2 + Logistic Regression |
-| Var-Only | Variance filter + Stacking (LR meta) |
-| Var + Importance | Variance + LGBM Importance + Stacking (LR meta) |
-| Full 3-Stage | Variance + Importance + Correlation + Stacking (LR meta) |
+| Var-Only | Variance filter + Stacking |
+| Var + Importance | Variance + LGBM Importance + Stacking |
+| EStack-PPI | Variance + Importance + Correlation + Stacking |
 
 ## 📈 Metrics
 
@@ -124,14 +124,6 @@ The pipeline evaluates with 8 metrics:
 | `use_gpu` | Auto | GPU acceleration |
 
 ## 📜 Citation
-
-```bibtex
-@article{estackppi2024,
-  title={E-StackPPI: Protein-Protein Interaction Prediction using ESM-2 and Stacking Classifier},
-  author={...},
-  year={2024}
-}
-```
 
 ## 📄 License
 
