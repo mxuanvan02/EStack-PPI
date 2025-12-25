@@ -276,6 +276,7 @@ def plot_roc_pr_curves(
     
     # ===== PR Curve =====
     ax2 = axes[1]
+    mean_recall = np.linspace(0, 1, 100)
     precisions_interp = []
     pr_aucs = []
     
@@ -284,22 +285,37 @@ def plot_roc_pr_curves(
         pr_auc = auc(recall, precision)
         pr_aucs.append(pr_auc)
         
+        # Interpolate for mean curve (reverse because recall is decreasing)
+        precision_interp = np.interp(mean_recall[::-1], recall[::-1], precision[::-1])[::-1]
+        precisions_interp.append(precision_interp)
+        
         ax2.plot(recall, precision, color=colors[i], alpha=0.6, lw=1.5,
                 label=f'Fold {i+1} (AUC={pr_auc:.4f})')
     
-    # Baseline
+    # Mean curve
+    mean_precision = np.mean(precisions_interp, axis=0)
+    mean_pr_auc = np.mean(pr_aucs)
+    std_pr_auc = np.std(pr_aucs)
+    ax2.plot(mean_recall, mean_precision, color='darkgreen', lw=2,
+            label=f'Mean (AUC={mean_pr_auc:.4f}±{std_pr_auc:.4f})')
+    
+    # Fill std area
+    std_precision = np.std(precisions_interp, axis=0)
+    ax2.fill_between(mean_recall, 
+                     np.maximum(mean_precision - std_precision, 0),
+                     np.minimum(mean_precision + std_precision, 1),
+                     color='grey', alpha=0.2)
+    
+    # Baseline (at the end of legend)
     baseline = np.mean([y.mean() for y in all_y_test])
     ax2.axhline(y=baseline, color='k', linestyle='--', lw=1, 
                label=f'Baseline ({baseline:.3f})')
     
-    mean_pr_auc = np.mean(pr_aucs)
-    std_pr_auc = np.std(pr_aucs)
     ax2.set_xlim([-0.02, 1.02])
     ax2.set_ylim([-0.02, 1.02])
     ax2.set_xlabel('Recall', fontsize=12)
     ax2.set_ylabel('Precision', fontsize=12)
-    ax2.set_title(f'Precision-Recall Curve - {title}\n(Mean AUC={mean_pr_auc:.4f}±{std_pr_auc:.4f})', 
-                  fontsize=14)
+    ax2.set_title(f'Precision-Recall Curve - {title}', fontsize=14)
     ax2.legend(loc='lower left', fontsize=9)
     ax2.grid(True, alpha=0.3)
     
