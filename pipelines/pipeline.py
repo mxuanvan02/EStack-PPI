@@ -400,14 +400,11 @@ def get_ablation_pipelines(
         ),
         "Var + Imp": (
             lambda: create_var_imp_pipeline(variance_threshold, importance_quantile, use_gpu, n_jobs, verbose),
-            f"Var({variance_threshold}) + Imp(q={importance_quantile}) + Stacking"
-        ),
-        "Full 3-Stage": (
-            lambda: create_full_pipeline(variance_threshold, importance_quantile, corr_threshold, use_gpu, n_jobs, verbose),
-            f"Var + Imp + Corr({corr_threshold}) + Stacking"
+            f"Var + Imp(q={importance_quantile}) + Stacking"
         ),
         "E-StackPPI": (
             lambda: create_full_pipeline(variance_threshold, importance_quantile, corr_threshold, use_gpu, n_jobs, verbose),
-            f"Full E-StackPPI (var={variance_threshold}, imp={importance_quantile}, corr={corr_threshold})"
+            f"Var + Imp + Corr({corr_threshold}) + Stacking"
         ),
     }
+
