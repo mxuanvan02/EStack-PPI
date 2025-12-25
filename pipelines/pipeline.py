@@ -360,6 +360,7 @@ def create_single_lgbm_pipeline(
 def get_ablation_pipelines(use_gpu: bool = None, n_jobs: int = -1, verbose: bool = False):
     """
     Get all ablation study pipelines.
+    All variants use Logistic Regression as meta-learner.
     
     Returns
     -------
@@ -371,24 +372,17 @@ def get_ablation_pipelines(use_gpu: bool = None, n_jobs: int = -1, verbose: bool
             lambda: create_baseline_lr(n_jobs, verbose),
             "ESM2 embeddings + Logistic Regression"
         ),
-        "Baseline (LGBM)": (
-            lambda: create_baseline_lgbm(use_gpu, n_jobs, verbose),
-            "ESM2 embeddings + Single LightGBM"
-        ),
         "Var-Only": (
             lambda: create_var_only_pipeline(0.01, use_gpu, n_jobs, verbose),
-            "Variance filter only + Stacking"
+            "Variance filter + Stacking (LR meta)"
         ),
         "Var + Importance": (
             lambda: create_var_imp_pipeline(0.01, 0.90, use_gpu, n_jobs, verbose),
-            "Variance + LGBM Importance + Stacking"
+            "Variance + LGBM Importance + Stacking (LR meta)"
         ),
         "Full 3-Stage": (
             lambda: create_full_pipeline(0.01, 0.90, 0.98, use_gpu, n_jobs, verbose),
-            "Variance + Importance + Correlation + Stacking"
-        ),
-        "Single LGBM (Full Sel)": (
-            lambda: create_single_lgbm_pipeline(0.01, 0.90, 0.98, use_gpu, n_jobs, verbose),
-            "Full 3-stage selector + Single LGBM (no stacking)"
+            "Variance + Importance + Correlation + Stacking (LR meta)"
         ),
     }
+

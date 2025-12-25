@@ -210,17 +210,7 @@ def plot_roc_pr_curves(
 ):
     """
     Plot ROC and Precision-Recall curves for all folds.
-    
-    Parameters
-    ----------
-    all_y_test : list
-        List of true labels for each fold.
-    all_y_proba : list
-        List of predicted probabilities for each fold.
-    title : str
-        Plot title.
-    save_path : str, optional
-        Path to save the figure.
+    Uses PERCENTAGE scale (0-100%) for axes and labels.
     """
     try:
         import matplotlib.pyplot as plt
@@ -230,91 +220,82 @@ def plot_roc_pr_curves(
         return
     
     fig, axes = plt.subplots(1, 2, figsize=(14, 6))
-    
-    # Colors for folds
     colors = plt.cm.Set2(np.linspace(0, 1, len(all_y_test)))
     
     # ===== ROC Curve =====
     ax1 = axes[0]
-    mean_fpr = np.linspace(0, 1, 100)
+    mean_fpr = np.linspace(0, 100, 100)
     tprs = []
     aucs = []
     
     for i, (y_test, y_proba) in enumerate(zip(all_y_test, all_y_proba)):
         fpr, tpr, _ = roc_curve(y_test, y_proba)
-        roc_auc = auc(fpr, tpr)
+        roc_auc = auc(fpr, tpr) * 100
         aucs.append(roc_auc)
         
-        # Interpolate for mean curve
-        tprs.append(np.interp(mean_fpr, fpr, tpr))
+        tprs.append(np.interp(mean_fpr, fpr * 100, tpr * 100))
         tprs[-1][0] = 0.0
         
-        ax1.plot(fpr, tpr, color=colors[i], alpha=0.6, lw=1.5,
-                label=f'Fold {i+1} (AUC={roc_auc:.4f})')
+        ax1.plot(fpr * 100, tpr * 100, color=colors[i], alpha=0.6, lw=1.5,
+                label=f'Fold {i+1} ({roc_auc:.2f}%)')
     
-    # Mean curve
     mean_tpr = np.mean(tprs, axis=0)
-    mean_tpr[-1] = 1.0
+    mean_tpr[-1] = 100.0
     mean_auc = np.mean(aucs)
     std_auc = np.std(aucs)
     ax1.plot(mean_fpr, mean_tpr, color='navy', lw=2,
-            label=f'Mean (AUC={mean_auc:.4f}±{std_auc:.4f})')
+            label=f'Mean ({mean_auc:.2f}±{std_auc:.2f}%)')
     
-    # Fill std area
     std_tpr = np.std(tprs, axis=0)
     ax1.fill_between(mean_fpr, mean_tpr - std_tpr, mean_tpr + std_tpr,
                      color='grey', alpha=0.2)
     
-    ax1.plot([0, 1], [0, 1], 'k--', lw=1, label='Random')
-    ax1.set_xlim([-0.02, 1.02])
-    ax1.set_ylim([-0.02, 1.02])
-    ax1.set_xlabel('False Positive Rate', fontsize=12)
-    ax1.set_ylabel('True Positive Rate', fontsize=12)
+    ax1.plot([0, 100], [0, 100], 'k--', lw=1, label='Random')
+    ax1.set_xlim([0, 100])
+    ax1.set_ylim([0, 100])
+    ax1.set_xlabel('False Positive Rate (%)', fontsize=12)
+    ax1.set_ylabel('True Positive Rate (%)', fontsize=12)
     ax1.set_title(f'ROC Curve - {title}', fontsize=14)
     ax1.legend(loc='lower right', fontsize=9)
     ax1.grid(True, alpha=0.3)
     
     # ===== PR Curve =====
     ax2 = axes[1]
-    mean_recall = np.linspace(0, 1, 100)
+    mean_recall = np.linspace(0, 100, 100)
     precisions_interp = []
     pr_aucs = []
     
     for i, (y_test, y_proba) in enumerate(zip(all_y_test, all_y_proba)):
         precision, recall, _ = precision_recall_curve(y_test, y_proba)
-        pr_auc = auc(recall, precision)
+        pr_auc = auc(recall, precision) * 100
         pr_aucs.append(pr_auc)
         
-        # Interpolate for mean curve (reverse because recall is decreasing)
-        precision_interp = np.interp(mean_recall[::-1], recall[::-1], precision[::-1])[::-1]
+        precision_interp = np.interp(mean_recall[::-1], recall[::-1] * 100, precision[::-1] * 100)[::-1]
         precisions_interp.append(precision_interp)
         
-        ax2.plot(recall, precision, color=colors[i], alpha=0.6, lw=1.5,
-                label=f'Fold {i+1} (AUC={pr_auc:.4f})')
+        ax2.plot(recall * 100, precision * 100, color=colors[i], alpha=0.6, lw=1.5,
+                label=f'Fold {i+1} ({pr_auc:.2f}%)')
     
-    # Mean curve
     mean_precision = np.mean(precisions_interp, axis=0)
     mean_pr_auc = np.mean(pr_aucs)
     std_pr_auc = np.std(pr_aucs)
     ax2.plot(mean_recall, mean_precision, color='darkgreen', lw=2,
-            label=f'Mean (AUC={mean_pr_auc:.4f}±{std_pr_auc:.4f})')
+            label=f'Mean ({mean_pr_auc:.2f}±{std_pr_auc:.2f}%)')
     
-    # Fill std area
     std_precision = np.std(precisions_interp, axis=0)
     ax2.fill_between(mean_recall, 
                      np.maximum(mean_precision - std_precision, 0),
-                     np.minimum(mean_precision + std_precision, 1),
+                     np.minimum(mean_precision + std_precision, 100),
                      color='grey', alpha=0.2)
     
-    # Baseline (at the end of legend)
-    baseline = np.mean([y.mean() for y in all_y_test])
+    baseline = np.mean([y.mean() for y in all_y_test]) * 100
     ax2.axhline(y=baseline, color='k', linestyle='--', lw=1, 
-               label=f'Baseline ({baseline:.3f})')
+               label=f'Baseline ({baseline:.1f}%)')
     
-    ax2.set_xlim([-0.02, 1.02])
-    ax2.set_ylim([-0.02, 1.02])
-    ax2.set_xlabel('Recall', fontsize=12)
-    ax2.set_ylabel('Precision', fontsize=12)
+    ax2.set_xlim([0, 100])
+    ax2.set_ylim([0, 100])
+    ax2.set_xlabel('Recall (%)', fontsize=12)
+    ax2.set_ylabel('Precision (%)', fontsize=12)
     ax2.set_title(f'Precision-Recall Curve - {title}', fontsize=14)
     ax2.legend(loc='lower left', fontsize=9)
     ax2.grid(True, alpha=0.3)
