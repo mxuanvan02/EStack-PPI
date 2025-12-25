@@ -16,11 +16,12 @@ from typing import Dict, List, Callable, Optional, Tuple
 from sklearn.model_selection import StratifiedKFold
 from sklearn.metrics import (
     accuracy_score, precision_score, recall_score,
-    f1_score, roc_auc_score, average_precision_score
+    f1_score, roc_auc_score, average_precision_score,
+    matthews_corrcoef, confusion_matrix
 )
 
 from .pipeline import get_ablation_pipelines
-from .utils import print_metrics_table, plot_ablation_results
+from .utils import plot_ablation_results, calculate_specificity
 
 
 def run_single_experiment(
@@ -31,33 +32,7 @@ def run_single_experiment(
     random_state: int = 42,
     verbose: bool = True
 ) -> Tuple[Dict, List[np.ndarray], List[np.ndarray]]:
-    """
-    Run single experiment with cross-validation.
-    
-    Parameters
-    ----------
-    pipeline_factory : callable
-        Function that returns a fresh pipeline instance.
-    X : ndarray
-        Feature matrix.
-    y : ndarray
-        Labels.
-    n_splits : int
-        Number of CV folds.
-    random_state : int
-        Random seed.
-    verbose : bool
-        Print progress.
-    
-    Returns
-    -------
-    avg_metrics : dict
-        Average metrics across folds.
-    all_y_test : list
-        True labels for each fold.
-    all_y_proba : list
-        Predicted probabilities for each fold.
-    """
+    """Run single experiment with cross-validation."""
     skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=random_state)
     
     fold_results = []
@@ -73,49 +48,38 @@ def run_single_experiment(
         X_train, X_test = X[train_idx], X[test_idx]
         y_train, y_test = y[train_idx], y[test_idx]
         
-        # Create fresh pipeline and train
         pipeline = pipeline_factory()
         pipeline.fit(X_train, y_train)
         
-        # Predict
         y_pred = pipeline.predict(X_test)
         y_proba = pipeline.predict_proba(X_test)[:, 1]
         
-        # Store for curves
         all_y_test.append(y_test)
         all_y_proba.append(y_proba)
         
-        # Calculate metrics
         metrics = {
             'Fold': fold,
-            'Accuracy': accuracy_score(y_test, y_pred),
-            'Precision': precision_score(y_test, y_pred),
-            'Recall': recall_score(y_test, y_pred),
-            'F1': f1_score(y_test, y_pred),
-            'AUC-ROC': roc_auc_score(y_test, y_proba),
-            'AUC-PR': average_precision_score(y_test, y_proba),
+            'Accuracy': accuracy_score(y_test, y_pred) * 100,
+            'Precision': precision_score(y_test, y_pred) * 100,
+            'Recall': recall_score(y_test, y_pred) * 100,
+            'F1': f1_score(y_test, y_pred) * 100,
+            'Specificity': calculate_specificity(y_test, y_pred) * 100,
+            'MCC': matthews_corrcoef(y_test, y_pred) * 100,
+            'ROC-AUC': roc_auc_score(y_test, y_proba) * 100,
+            'PR-AUC': average_precision_score(y_test, y_proba) * 100,
             'Time': time.time() - fold_start
         }
         fold_results.append(metrics)
         
         if verbose:
-            print(f"AUC={metrics['AUC-ROC']:.4f}, F1={metrics['F1']:.4f} ({metrics['Time']:.1f}s)")
+            print(f"AUC={metrics['ROC-AUC']:.2f}%, F1={metrics['F1']:.2f}%")
     
-    # Aggregate results
     df = pd.DataFrame(fold_results)
-    avg_metrics = {
-        'Accuracy': df['Accuracy'].mean(),
-        'Accuracy_std': df['Accuracy'].std(),
-        'Precision': df['Precision'].mean(),
-        'Recall': df['Recall'].mean(),
-        'F1': df['F1'].mean(),
-        'F1_std': df['F1'].std(),
-        'AUC-ROC': df['AUC-ROC'].mean(),
-        'AUC-ROC_std': df['AUC-ROC'].std(),
-        'AUC-PR': df['AUC-PR'].mean(),
-        'AUC-PR_std': df['AUC-PR'].std(),
-        'Time_total': df['Time'].sum()
-    }
+    avg_metrics = {}
+    for col in ['Accuracy', 'Precision', 'Recall', 'F1', 'Specificity', 'MCC', 'ROC-AUC', 'PR-AUC']:
+        avg_metrics[col] = df[col].mean()
+        avg_metrics[f'{col}_std'] = df[col].std()
+    avg_metrics['Time_total'] = df['Time'].sum()
     
     return avg_metrics, all_y_test, all_y_proba
 
@@ -128,44 +92,20 @@ def run_ablation_study(
     n_jobs: int = -1,
     random_state: int = 42,
     save_path: Optional[str] = None,
+    show_plot: bool = True,
     verbose: bool = True
-) -> pd.DataFrame:
+) -> Tuple[pd.DataFrame, Dict]:
     """
     Run full ablation study with all variants.
     
-    Parameters
-    ----------
-    X : ndarray
-        Feature matrix (N, 2560 for ESM2).
-    y : ndarray
-        Binary labels.
-    n_splits : int
-        Number of CV folds.
-    use_gpu : bool, optional
-        Force GPU/CPU. Auto-detect if None.
-    n_jobs : int
-        Number of parallel jobs.
-    random_state : int
-        Random seed.
-    save_path : str, optional
-        Path to save results CSV.
-    verbose : bool
-        Print progress.
-    
-    Returns
-    -------
-    pd.DataFrame
-        Results table with all variants and metrics.
+    Returns DataFrame with all 8 metrics and visualization.
     """
-    print("=" * 80)
+    print("=" * 120)
     print("🔬 E-STACKPPI ABLATION STUDY")
-    print("=" * 80)
-    print(f"   Data: {X.shape[0]} samples, {X.shape[1]} features")
-    print(f"   Positive ratio: {y.mean():.2%}")
-    print(f"   CV Folds: {n_splits}")
-    print("=" * 80)
+    print("=" * 120)
+    print(f"   Data: {X.shape[0]} samples, {X.shape[1]} features | Positive: {y.mean():.2%} | Folds: {n_splits}")
+    print("=" * 120)
     
-    # Get all pipeline variants
     pipelines = get_ablation_pipelines(use_gpu=use_gpu, n_jobs=n_jobs, verbose=False)
     
     results = []
@@ -174,8 +114,7 @@ def run_ablation_study(
     total_start = time.time()
     
     for name, (factory, description) in pipelines.items():
-        print(f"\n📦 {name}")
-        print(f"   {description}")
+        print(f"\n📦 {name}: {description}")
         
         try:
             avg_metrics, y_tests, y_probas = run_single_experiment(
@@ -186,119 +125,119 @@ def run_ablation_study(
                 verbose=verbose
             )
             
-            row = {
-                'Variant': name,
-                'Accuracy': avg_metrics['Accuracy'],
-                'Acc_std': avg_metrics['Accuracy_std'],
-                'F1': avg_metrics['F1'],
-                'F1_std': avg_metrics['F1_std'],
-                'AUC-ROC': avg_metrics['AUC-ROC'],
-                'ROC_std': avg_metrics['AUC-ROC_std'],
-                'AUC-PR': avg_metrics['AUC-PR'],
-                'PR_std': avg_metrics['AUC-PR_std'],
-                'Time': avg_metrics['Time_total']
-            }
+            row = {'Variant': name}
+            for col in ['Accuracy', 'Precision', 'Recall', 'F1', 'Specificity', 'MCC', 'ROC-AUC', 'PR-AUC']:
+                row[f'{col} (%)'] = avg_metrics[col]
+                row[f'{col}_std'] = avg_metrics[f'{col}_std']
+            row['Time'] = avg_metrics['Time_total']
+            
             results.append(row)
             all_predictions[name] = (y_tests, y_probas)
             
-            print(f"   ✅ Acc={row['Accuracy']:.4f}±{row['Acc_std']:.4f}, "
-                  f"AUC={row['AUC-ROC']:.4f}±{row['ROC_std']:.4f}")
+            print(f"   ✅ Acc={avg_metrics['Accuracy']:.2f}±{avg_metrics['Accuracy_std']:.2f}% | "
+                  f"AUC={avg_metrics['ROC-AUC']:.2f}±{avg_metrics['ROC-AUC_std']:.2f}%")
             
         except Exception as e:
             print(f"   ❌ Error: {e}")
-            results.append({
-                'Variant': name,
-                'Accuracy': np.nan,
-                'F1': np.nan,
-                'AUC-ROC': np.nan,
-                'AUC-PR': np.nan,
-                'Error': str(e)
-            })
+            row = {'Variant': name, 'Error': str(e)}
+            for col in ['Accuracy', 'Precision', 'Recall', 'F1', 'Specificity', 'MCC', 'ROC-AUC', 'PR-AUC']:
+                row[f'{col} (%)'] = np.nan
+            results.append(row)
     
     total_time = time.time() - total_start
     
     # Create results DataFrame
     df = pd.DataFrame(results)
     
-    # Print summary table
-    print("\n" + "=" * 80)
-    print("📊 ABLATION STUDY RESULTS")
-    print("=" * 80)
+    # Create display table with mean±std format
+    display_data = []
+    for _, row in df.iterrows():
+        display_row = {'Variant': row['Variant']}
+        for col in ['Accuracy', 'Precision', 'Recall', 'F1', 'Specificity', 'MCC', 'ROC-AUC', 'PR-AUC']:
+            val, std = row.get(f'{col} (%)', np.nan), row.get(f'{col}_std', np.nan)
+            if pd.notna(val):
+                display_row[f'{col} (%)'] = f"{val:.2f}±{std:.2f}"
+            else:
+                display_row[f'{col} (%)'] = "-"
+        display_data.append(display_row)
     
-    display_cols = ['Variant', 'Accuracy', 'F1', 'AUC-ROC', 'AUC-PR', 'Time']
-    display_cols = [c for c in display_cols if c in df.columns]
-    print(df[display_cols].to_string(index=False))
+    df_display = pd.DataFrame(display_data)
+    
+    # Print summary table
+    print("\n" + "=" * 120)
+    print("📊 ABLATION STUDY RESULTS")
+    print("=" * 120)
+    print(df_display.to_string(index=False))
     
     print(f"\n⏱️ Total time: {total_time:.1f}s ({total_time/60:.1f} min)")
     
     # Highlight best
-    if not df['AUC-ROC'].isna().all():
-        best_idx = df['AUC-ROC'].idxmax()
+    metric_cols = [c for c in df.columns if c.endswith(' (%)') and 'std' not in c]
+    if 'ROC-AUC (%)' in df.columns and not df['ROC-AUC (%)'].isna().all():
+        best_idx = df['ROC-AUC (%)'].idxmax()
         best_variant = df.loc[best_idx, 'Variant']
-        best_auc = df.loc[best_idx, 'AUC-ROC']
-        print(f"🏆 Best: {best_variant} (AUC-ROC = {best_auc:.4f})")
+        best_auc = df.loc[best_idx, 'ROC-AUC (%)']
+        print(f"🏆 Best: {best_variant} (ROC-AUC = {best_auc:.2f}%)")
     
     # Save results
     if save_path:
-        df.to_csv(save_path, index=False)
+        df_display.to_csv(save_path, index=False)
         print(f"\n💾 Results saved to: {save_path}")
+    
+    # Visualization
+    if show_plot:
+        try:
+            import matplotlib.pyplot as plt
+            
+            # Bar chart for key metrics
+            fig, ax = plt.subplots(figsize=(14, 6))
+            
+            variants = df['Variant'].tolist()
+            x = np.arange(len(variants))
+            width = 0.15
+            
+            metrics_to_plot = ['Accuracy (%)', 'F1 (%)', 'MCC (%)', 'ROC-AUC (%)', 'PR-AUC (%)']
+            colors = ['#3498db', '#2ecc71', '#f39c12', '#e74c3c', '#9b59b6']
+            
+            for i, (metric, color) in enumerate(zip(metrics_to_plot, colors)):
+                if metric in df.columns:
+                    values = df[metric].fillna(0).tolist()
+                    ax.bar(x + i * width, values, width, label=metric.replace(' (%)', ''), color=color)
+            
+            ax.set_xlabel('Variant', fontsize=12)
+            ax.set_ylabel('Score (%)', fontsize=12)
+            ax.set_title('Ablation Study Results', fontsize=14)
+            ax.set_xticks(x + width * 2)
+            ax.set_xticklabels(variants, rotation=30, ha='right')
+            ax.legend(loc='lower right')
+            ax.grid(True, alpha=0.3, axis='y')
+            ax.set_ylim(0, 105)
+            
+            plt.tight_layout()
+            plt.savefig('ablation_chart.png', dpi=150, bbox_inches='tight')
+            plt.show()
+            print("✅ Saved: ablation_chart.png")
+        except Exception as e:
+            print(f"⚠️ Could not plot: {e}")
     
     return df, all_predictions
 
 
 def format_results_latex(df: pd.DataFrame, caption: str = "Ablation Study Results") -> str:
-    """
-    Format results as LaTeX table.
-    
-    Parameters
-    ----------
-    df : pd.DataFrame
-        Results DataFrame from run_ablation_study.
-    caption : str
-        Table caption.
-    
-    Returns
-    -------
-    str
-        LaTeX table code.
-    """
-    latex = "\\begin{table}[htbp]\n"
-    latex += "\\centering\n"
+    """Format results as LaTeX table."""
+    latex = "\\begin{table}[htbp]\n\\centering\n"
     latex += f"\\caption{{{caption}}}\n"
-    latex += "\\begin{tabular}{lcccc}\n"
-    latex += "\\hline\n"
-    latex += "\\textbf{Variant} & \\textbf{Accuracy} & \\textbf{F1} & \\textbf{AUC-ROC} & \\textbf{AUC-PR} \\\\\n"
+    latex += "\\begin{tabular}{l" + "c" * 8 + "}\n\\hline\n"
+    latex += "\\textbf{Variant} & \\textbf{Acc} & \\textbf{Prec} & \\textbf{Rec} & \\textbf{F1} & \\textbf{Spec} & \\textbf{MCC} & \\textbf{ROC} & \\textbf{PR} \\\\\n"
     latex += "\\hline\n"
     
     for _, row in df.iterrows():
         variant = row['Variant'].replace('_', '\\_')
-        
-        # Format with std if available
-        if 'Acc_std' in df.columns and not pd.isna(row.get('Acc_std')):
-            acc = f"{row['Accuracy']:.4f}$\\pm${row['Acc_std']:.4f}"
-        else:
-            acc = f"{row['Accuracy']:.4f}" if not pd.isna(row['Accuracy']) else "-"
-        
-        if 'F1_std' in df.columns and not pd.isna(row.get('F1_std')):
-            f1 = f"{row['F1']:.4f}$\\pm${row['F1_std']:.4f}"
-        else:
-            f1 = f"{row['F1']:.4f}" if not pd.isna(row['F1']) else "-"
-        
-        if 'ROC_std' in df.columns and not pd.isna(row.get('ROC_std')):
-            roc = f"{row['AUC-ROC']:.4f}$\\pm${row['ROC_std']:.4f}"
-        else:
-            roc = f"{row['AUC-ROC']:.4f}" if not pd.isna(row['AUC-ROC']) else "-"
-        
-        if 'PR_std' in df.columns and not pd.isna(row.get('PR_std')):
-            pr = f"{row['AUC-PR']:.4f}$\\pm${row['PR_std']:.4f}"
-        else:
-            pr = f"{row['AUC-PR']:.4f}" if not pd.isna(row['AUC-PR']) else "-"
-        
-        latex += f"{variant} & {acc} & {f1} & {roc} & {pr} \\\\\n"
+        values = []
+        for col in ['Accuracy (%)', 'Precision (%)', 'Recall (%)', 'F1 (%)', 'Specificity (%)', 'MCC (%)', 'ROC-AUC (%)', 'PR-AUC (%)']:
+            val = row.get(col, '-')
+            values.append(str(val) if val != '-' else '-')
+        latex += f"{variant} & " + " & ".join(values) + " \\\\\n"
     
-    latex += "\\hline\n"
-    latex += "\\end{tabular}\n"
-    latex += "\\label{tab:ablation}\n"
-    latex += "\\end{table}\n"
-    
+    latex += "\\hline\n\\end{tabular}\n\\label{tab:ablation}\n\\end{table}\n"
     return latex
