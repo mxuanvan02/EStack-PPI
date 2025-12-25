@@ -1,93 +1,88 @@
-"""Pipeline utilities: feature extraction, selectors, builders, metrics, data utils."""
+"""
+EStack-PPI: Embedding-based Stacking for Protein-Protein Interaction Prediction.
 
-from .feature_engine import (
-    EmbeddingComputer,
-    FeatureEngine,
-    InterpretableFeatureExtractor,
-)
+A high-performance PPI prediction pipeline using:
+- ESM-2 protein language model embeddings
+- 3-stage cumulative feature selection (Variance → Importance → Correlation)
+- Stacking ensemble (2×LightGBM + Logistic Regression meta-learner)
+
+Usage
+-----
+>>> from EStack_PPI import create_estack_pipeline
+>>> pipeline = create_estack_pipeline(use_gpu=True)
+>>> pipeline.fit(X_train, y_train)
+>>> y_pred = pipeline.predict(X_test)
+
+For ablation study:
+>>> from EStack_PPI import run_ablation_study
+>>> results = run_ablation_study(X, y, n_splits=5)
+
+Author: EStack-PPI Team
+License: MIT
+"""
+
+__version__ = "1.0.0"
+__author__ = "EStack-PPI Team"
+
+# Core components
 from .selectors import CumulativeFeatureSelector
-from .logger import PipelineLogger
-from .metrics import (
-    display_full_metrics,
-    plot_evaluation_results,
-    plot_train_test_curves,
-    plot_confusion_matrix_custom,
-    plot_feature_importance,
-    save_roc_pr_curves,
+from .pipeline import (
+    create_estack_pipeline,
+    create_baseline_lr,
+    create_baseline_lgbm,
+    create_var_only_pipeline,
+    create_var_imp_pipeline,
+    create_full_pipeline,
+    create_single_lgbm_pipeline,
+    get_ablation_pipelines
+)
+from .utils import (
+    detect_device,
+    print_device_info,
+    load_sequences,
+    load_pairs,
+    load_embeddings_from_h5,
     plot_roc_pr_curves,
-    save_feature_importance_hybrid,
-    plot_hybrid_feature_importance,
-    plot_correlation_heatmap,
-    plot_embedding_projection,
-    plot_learning_curve_sklearn,
-    plot_feature_importance_for_paper,
-    print_paper_style_results,
-    save_feature_importance_table,
+    plot_ablation_results,
+    calculate_metrics,
+    print_metrics_table
 )
-from .data_utils import (
-    load_data,
-    canonicalize_pairs,
-    create_feature_matrix,
-    get_cache_filename,
-    save_feature_matrix_h5,
-    load_feature_matrix_h5,
-    split_pairs_no_overlap,
-    make_protein_folds,
-    build_esm_only_pair_matrix,
-    get_protein_based_splits,
-    get_cluster_based_splits,
-    load_cluster_map,
-)
-from .builders import (
-    create_lgbm_pipeline,
-    create_stacking_pipeline,
-    create_svm_pipeline,
-    create_embed_only_pipeline,
-    create_interp_only_pipeline,
-    create_esm_lr_pipeline,
-    create_esm_lgbm_raw_pipeline,
-    create_esm_lgbm_selector_pipeline,
+from .ablation import (
+    run_single_experiment,
+    run_ablation_study,
+    format_results_latex
 )
 
 __all__ = [
-    "EmbeddingComputer",
-    "FeatureEngine",
-    "InterpretableFeatureExtractor",
+    # Version
+    "__version__",
+    
+    # Selectors
     "CumulativeFeatureSelector",
-    "PipelineLogger",
-    "display_full_metrics",
-    "plot_evaluation_results",
-    "plot_train_test_curves",
-    "plot_confusion_matrix_custom",
-    "plot_feature_importance",
-    "save_roc_pr_curves",
+    
+    # Pipelines
+    "create_estack_pipeline",
+    "create_baseline_lr",
+    "create_baseline_lgbm",
+    "create_var_only_pipeline",
+    "create_var_imp_pipeline",
+    "create_full_pipeline",
+    "create_single_lgbm_pipeline",
+    "get_ablation_pipelines",
+    
+    # Utils
+    "detect_device",
+    "print_device_info",
+    "load_sequences",
+    "load_pairs",
+    "load_embeddings_from_h5",
     "plot_roc_pr_curves",
-    "save_feature_importance_hybrid",
-    "plot_hybrid_feature_importance",
-    "plot_correlation_heatmap",
-    "plot_embedding_projection",
-    "plot_learning_curve_sklearn",
-    "plot_feature_importance_for_paper",
-    "print_paper_style_results",
-    "save_feature_importance_table",
-    "load_data",
-    "canonicalize_pairs",
-    "create_feature_matrix",
-    "get_cache_filename",
-    "save_feature_matrix_h5",
-    "load_feature_matrix_h5",
-    "split_pairs_no_overlap",
-    "make_protein_folds",
-    "build_esm_only_pair_matrix",
-    "get_protein_based_splits",
-    "get_cluster_based_splits",
-    "load_cluster_map",
-    "create_lgbm_pipeline",
-    "create_stacking_pipeline",
-    "create_svm_pipeline",
-    "create_embed_only_pipeline",
-    "create_interp_only_pipeline",
-    "create_esm_lr_pipeline",
-    "create_esm_lgbm_raw_pipeline",
-    "create_esm_lgbm_selector_pipeline",
+    "plot_ablation_results",
+    "calculate_metrics",
+    "print_metrics_table",
+    
+    # Ablation
+    "run_single_experiment",
+    "run_ablation_study",
+    "format_results_latex",
 ]

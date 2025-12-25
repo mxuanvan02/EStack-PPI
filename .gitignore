@@ -139,3 +139,14 @@ data_clean/
 !EStack_PPI/pipeline.py
 !EStack_PPI/utils.py
 !EStack_PPI/ablation.py
+
+# Root main scripts
+!run_estackppi.py
+!run_ablation.py
+!extract_esm2.py
+!results/
+
+# Pipelines module - new files
+!pipelines/pipeline.py
+!pipelines/ablation.py
+!pipelines/utils.py
