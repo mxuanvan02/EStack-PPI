@@ -49,38 +49,42 @@ cd EStack-PPI
 pip install -r requirements.txt
 ```
 
-### 2. Google Colab
+### 2. Run 5-Fold Cross-Validation
+
+```bash
+python run_estackppi.py --dataset yeast --n_splits 5
+```
+
+### 3. Run Ablation Study
+
+```bash
+python run_ablation.py --dataset yeast --n_splits 5
+```
+
+### 4. Extract ESM-2 Embeddings
+
+```bash
+python extract_esm2.py --fasta data/yeast/sequences.fasta --output data/esm2_embeddings.h5
+```
+
+### 5. Python API
 
 ```python
-# Cell 1: Clone & Install
-!git clone https://github.com/mxuanvan02/EStack-PPI.git
-%cd EStack-PPI
-!pip install -q torch transformers lightgbm biopython scikit-learn pandas numpy tqdm h5py matplotlib
-
-# Cell 2: Import
 from pipelines.pipeline import create_full_pipeline
-from pipelines.ablation import run_ablation_study
-from pipelines.utils import plot_roc_pr_curves
+from pipelines.selectors import CumulativeFeatureSelector
 
-# Cell 3: Run
+# Create pipeline with custom parameters
 pipeline = create_full_pipeline(
     variance_threshold=0.002,
     importance_quantile=0.90,
     corr_threshold=0.90,
     use_gpu=True
 )
+
+# Train and predict
 pipeline.fit(X_train, y_train)
 y_pred = pipeline.predict(X_test)
-```
-
-### 3. Run Ablation Study
-
-```python
-from pipelines.ablation import run_ablation_study
-
-results_df, predictions = run_ablation_study(
-    X, y, n_splits=5, use_gpu=True
-)
+y_proba = pipeline.predict_proba(X_test)[:, 1]
 ```
 
 ## 📊 Ablation Variants
