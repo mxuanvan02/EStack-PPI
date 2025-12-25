@@ -89,14 +89,14 @@ y_proba = pipeline.predict_proba(X_test)[:, 1]
 
 ## 📊 Ablation Variants
 
+All variants use **Logistic Regression** as meta-learner.
+
 | Variant | Description |
 |---------|-------------|
 | Baseline (LR) | ESM2 + Logistic Regression |
-| Baseline (LGBM) | ESM2 + Single LightGBM |
-| Var-Only | Variance filter only |
-| Var + Importance | Variance + LGBM Importance |
-| Full 3-Stage | Variance + Importance + Correlation |
-| Single LGBM | Full selector + Single LGBM (no stacking) |
+| Var-Only | Variance filter + Stacking (LR meta) |
+| Var + Importance | Variance + LGBM Importance + Stacking (LR meta) |
+| Full 3-Stage | Variance + Importance + Correlation + Stacking (LR meta) |
 
 ## 📈 Metrics
 
