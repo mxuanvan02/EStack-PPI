@@ -87,6 +87,9 @@ def run_single_experiment(
 def run_ablation_study(
     X: np.ndarray,
     y: np.ndarray,
+    variance_threshold: float = 0.002,
+    importance_quantile: float = 0.90,
+    corr_threshold: float = 0.90,
     n_splits: int = 5,
     use_gpu: bool = None,
     n_jobs: int = -1,
@@ -104,9 +107,18 @@ def run_ablation_study(
     print("🔬 E-STACKPPI ABLATION STUDY")
     print("=" * 120)
     print(f"   Data: {X.shape[0]} samples, {X.shape[1]} features | Positive: {y.mean():.2%} | Folds: {n_splits}")
+    print(f"   Params: var={variance_threshold}, imp={importance_quantile}, corr={corr_threshold}")
     print("=" * 120)
     
-    pipelines = get_ablation_pipelines(use_gpu=use_gpu, n_jobs=n_jobs, verbose=False)
+    pipelines = get_ablation_pipelines(
+        variance_threshold=variance_threshold,
+        importance_quantile=importance_quantile,
+        corr_threshold=corr_threshold,
+        use_gpu=use_gpu, 
+        n_jobs=n_jobs, 
+        verbose=False
+    )
+
     
     results = []
     all_predictions = {}

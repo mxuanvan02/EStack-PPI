@@ -357,10 +357,32 @@ def create_single_lgbm_pipeline(
 # Pipeline Collection
 # ============================================================================
 
-def get_ablation_pipelines(use_gpu: bool = None, n_jobs: int = -1, verbose: bool = False):
+def get_ablation_pipelines(
+    variance_threshold: float = 0.002,
+    importance_quantile: float = 0.90,
+    corr_threshold: float = 0.90,
+    use_gpu: bool = None, 
+    n_jobs: int = -1, 
+    verbose: bool = False
+):
     """
     Get all ablation study pipelines.
     All variants use Logistic Regression as meta-learner.
+    
+    Parameters
+    ----------
+    variance_threshold : float
+        Variance threshold for feature selection.
+    importance_quantile : float
+        Cumulative importance quantile.
+    corr_threshold : float
+        Correlation threshold.
+    use_gpu : bool
+        Use GPU for LightGBM.
+    n_jobs : int
+        Number of parallel jobs.
+    verbose : bool
+        Print progress.
     
     Returns
     -------
@@ -370,19 +392,22 @@ def get_ablation_pipelines(use_gpu: bool = None, n_jobs: int = -1, verbose: bool
     return {
         "Baseline (LR)": (
             lambda: create_baseline_lr(n_jobs, verbose),
-            "ESM2 embeddings + Logistic Regression"
+            "ESM2 + Logistic Regression"
         ),
         "Var-Only": (
-            lambda: create_var_only_pipeline(0.01, use_gpu, n_jobs, verbose),
-            "Variance filter + Stacking (LR meta)"
+            lambda: create_var_only_pipeline(variance_threshold, use_gpu, n_jobs, verbose),
+            f"Variance({variance_threshold}) + Stacking"
         ),
-        "Var + Importance": (
-            lambda: create_var_imp_pipeline(0.01, 0.90, use_gpu, n_jobs, verbose),
-            "Variance + LGBM Importance + Stacking (LR meta)"
+        "Var + Imp": (
+            lambda: create_var_imp_pipeline(variance_threshold, importance_quantile, use_gpu, n_jobs, verbose),
+            f"Var({variance_threshold}) + Imp(q={importance_quantile}) + Stacking"
         ),
         "Full 3-Stage": (
-            lambda: create_full_pipeline(0.01, 0.90, 0.98, use_gpu, n_jobs, verbose),
-            "Variance + Importance + Correlation + Stacking (LR meta)"
+            lambda: create_full_pipeline(variance_threshold, importance_quantile, corr_threshold, use_gpu, n_jobs, verbose),
+            f"Var + Imp + Corr({corr_threshold}) + Stacking"
+        ),
+        "E-StackPPI": (
+            lambda: create_full_pipeline(variance_threshold, importance_quantile, corr_threshold, use_gpu, n_jobs, verbose),
+            f"Full E-StackPPI (var={variance_threshold}, imp={importance_quantile}, corr={corr_threshold})"
         ),
     }
-
