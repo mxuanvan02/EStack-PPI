@@ -9,10 +9,15 @@ Three-stage feature selection:
 Author: EStack-PPI Team
 """
 
+import warnings
 import numpy as np
 import pandas as pd
 from sklearn.base import BaseEstimator, TransformerMixin, clone
 from sklearn.feature_selection import VarianceThreshold
+
+# Suppress LightGBM warnings
+warnings.filterwarnings('ignore', category=UserWarning, module='lightgbm')
+
 
 try:
     from lightgbm import LGBMClassifier
