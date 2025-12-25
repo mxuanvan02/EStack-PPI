@@ -386,7 +386,29 @@ def plot_ablation_results(results_df: pd.DataFrame, save_path: Optional[str] = N
 # Metrics
 # ============================================================================
 
-def calculate_metrics(y_true: np.ndarray, y_pred: np.ndarray, y_proba: np.ndarray) -> Dict:
+def calculate_specificity(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    """
+    Calculate specificity (True Negative Rate).
+    
+    Parameters
+    ----------
+    y_true : ndarray
+        True labels.
+    y_pred : ndarray
+        Predicted labels.
+    
+    Returns
+    -------
+    float
+        Specificity score.
+    """
+    from sklearn.metrics import confusion_matrix
+    tn, fp, fn, tp = confusion_matrix(y_true, y_pred).ravel()
+    return tn / (tn + fp) if (tn + fp) > 0 else 0.0
+
+
+def calculate_metrics(y_true: np.ndarray, y_pred: np.ndarray, y_proba: np.ndarray, 
+                      as_percentage: bool = False) -> Dict:
     """
     Calculate classification metrics.
     
@@ -398,24 +420,32 @@ def calculate_metrics(y_true: np.ndarray, y_pred: np.ndarray, y_proba: np.ndarra
         Predicted labels.
     y_proba : ndarray
         Predicted probabilities for positive class.
+    as_percentage : bool
+        If True, return values as percentages (0-100).
     
     Returns
     -------
     dict
-        Dictionary with: Accuracy, Precision, Recall, F1, AUC-ROC, AUC-PR
+        Dictionary with: Accuracy, Precision, Recall, F1, Specificity, MCC, ROC-AUC, PR-AUC
     """
     from sklearn.metrics import (
         accuracy_score, precision_score, recall_score, 
-        f1_score, roc_auc_score, average_precision_score
+        f1_score, roc_auc_score, average_precision_score,
+        matthews_corrcoef
     )
     
+    multiplier = 100 if as_percentage else 1
+    suffix = " (%)" if as_percentage else ""
+    
     return {
-        'Accuracy': accuracy_score(y_true, y_pred),
-        'Precision': precision_score(y_true, y_pred),
-        'Recall': recall_score(y_true, y_pred),
-        'F1': f1_score(y_true, y_pred),
-        'AUC-ROC': roc_auc_score(y_true, y_proba),
-        'AUC-PR': average_precision_score(y_true, y_proba)
+        f'Accuracy{suffix}': accuracy_score(y_true, y_pred) * multiplier,
+        f'Precision{suffix}': precision_score(y_true, y_pred) * multiplier,
+        f'Recall{suffix}': recall_score(y_true, y_pred) * multiplier,
+        f'F1{suffix}': f1_score(y_true, y_pred) * multiplier,
+        f'Specificity{suffix}': calculate_specificity(y_true, y_pred) * multiplier,
+        f'MCC{suffix}': matthews_corrcoef(y_true, y_pred) * multiplier,
+        f'ROC-AUC{suffix}': roc_auc_score(y_true, y_proba) * multiplier,
+        f'PR-AUC{suffix}': average_precision_score(y_true, y_proba) * multiplier
     }
 
 
